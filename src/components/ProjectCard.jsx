@@ -1154,22 +1154,6 @@ export default function ProjectCard({
           />
         )}
 
-        {environmentData.isBroken && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-            <span className="inline-flex items-center gap-2 font-medium">
-              <AlertTriangle className="h-4 w-4" />
-              {` ${activeEnvironment} path may be broken`}
-            </span>
-            <button
-              type="button"
-              onClick={() => setIsEditingPath(true)}
-              className="rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700"
-            >
-              Edit path
-            </button>
-          </div>
-        )}
-
         <LanguageBar languages={project.languagesList ?? project.languages} />
 
         <div className="grid gap-1 text-sm text-slate-500 dark:text-slate-400">
