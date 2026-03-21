@@ -42,6 +42,25 @@ const SHORT_LABELS = {
   Other: 'OT',
 }
 
+function getShortLabel(language) {
+  if (SHORT_LABELS[language]) {
+    return SHORT_LABELS[language]
+  }
+
+  const normalized = String(language ?? '')
+    .trim()
+    .split(/[\s/-]+/)
+    .map((part) => part[0] ?? '')
+    .join('')
+    .toUpperCase()
+
+  if (normalized) {
+    return normalized.slice(0, 4)
+  }
+
+  return 'OT'
+}
+
 function getBadgeClass(language) {
   return (
     BADGE_CLASS_BY_HEX[LANGUAGE_COLORS[language] ?? LANGUAGE_COLORS.Other] ??
@@ -57,7 +76,7 @@ export default function LanguageBadge({ language }) {
       className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getBadgeClass(nextLanguage)}`}
       title={nextLanguage}
     >
-      {SHORT_LABELS[nextLanguage] ?? 'OT'}
+      {getShortLabel(nextLanguage)}
     </span>
   )
 }

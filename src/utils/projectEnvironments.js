@@ -1,4 +1,4 @@
-import { PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
+import { DEFAULT_PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
 
 function createEmptyEnvironment() {
   return {
@@ -10,14 +10,25 @@ function createEmptyEnvironment() {
 }
 
 export function buildProjectEnvironments(devEnvironment = {}) {
-  return {
-    DEV: {
-      ...createEmptyEnvironment(),
-      ...devEnvironment,
-    },
-    STG: createEmptyEnvironment(),
-    PROD: createEmptyEnvironment(),
-  }
+  return Object.fromEntries(
+    DEFAULT_PROJECT_ENVIRONMENTS.map((environment) => [
+      environment,
+      environment === 'DEV'
+        ? {
+            ...createEmptyEnvironment(),
+            ...devEnvironment,
+          }
+        : createEmptyEnvironment(),
+    ]),
+  )
+}
+
+export function getProjectEnvironmentNames(project) {
+  const storedEnvironmentNames = Object.keys(project?.environments ?? {})
+
+  return Array.from(
+    new Set([...DEFAULT_PROJECT_ENVIRONMENTS, ...storedEnvironmentNames]),
+  )
 }
 
 export function getProjectEnvironments(project) {
@@ -30,7 +41,7 @@ export function getProjectEnvironments(project) {
   }
 
   return Object.fromEntries(
-    PROJECT_ENVIRONMENTS.map((environment) => {
+    getProjectEnvironmentNames(project).map((environment) => {
       const fallbackEnvironment =
         environment === 'DEV' ? legacyDevEnvironment : createEmptyEnvironment()
       const storedEnvironment = project?.environments?.[environment] ?? {}
@@ -51,7 +62,7 @@ export function getProjectEnvironment(project, environment = 'DEV') {
 }
 
 export function getProjectPathValues(project) {
-  return PROJECT_ENVIRONMENTS.map(
+  return getProjectEnvironmentNames(project).map(
     (environment) => getProjectEnvironment(project, environment).absolutePath,
   ).filter(Boolean)
 }

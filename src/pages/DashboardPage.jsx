@@ -9,7 +9,7 @@ import SkeletonCard from '../components/SkeletonCard'
 import SortFilterBar from '../components/SortFilterBar'
 import ToastContainer from '../components/ToastContainer'
 import { LANGUAGE_COLORS } from '../constants/languageColors'
-import { PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
+import { DEFAULT_PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
 import { db } from '../firebase'
 import useAuth from '../hooks/useAuth'
 import useProjects from '../hooks/useProjects'
@@ -77,6 +77,16 @@ const MANUAL_LANGUAGE_OPTIONS = Object.keys(LANGUAGE_COLORS).filter(
   (language) => language !== 'Other',
 )
 
+function toUniqueLanguages(languages = []) {
+  return Array.from(
+    new Set(
+      languages
+        .map((language) => String(language ?? '').trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth()
   const { projects, loading: projectsLoading, error } = useProjects(user?.uid)
@@ -98,6 +108,7 @@ export default function DashboardPage() {
     absolutePath: '',
     repositoryUrl: '',
     languagesList: [],
+    customLanguage: '',
   })
   const searchInputRef = useRef(null)
   const usedProjectCount = projects.length
@@ -196,6 +207,7 @@ export default function DashboardPage() {
       absolutePath: '',
       repositoryUrl: '',
       languagesList: [],
+      customLanguage: '',
     })
   }
 
@@ -212,6 +224,24 @@ export default function DashboardPage() {
           : [...currentDraft.languagesList, language],
       }
     })
+  }
+
+  function handleCustomLanguageAdd() {
+    const nextLanguage = projectDraft.customLanguage.trim()
+
+    if (!nextLanguage) {
+      addToast('Type a programming language name before adding it.', 'info')
+      return
+    }
+
+    setProjectDraft((currentDraft) => ({
+      ...currentDraft,
+      languagesList: toUniqueLanguages([
+        ...currentDraft.languagesList,
+        nextLanguage,
+      ]),
+      customLanguage: '',
+    }))
   }
 
   function openManualImport() {
@@ -260,8 +290,9 @@ export default function DashboardPage() {
       return
     }
 
-    const languagesList = projectDraft.languagesList.length
-      ? projectDraft.languagesList
+    const normalizedLanguagesList = toUniqueLanguages(projectDraft.languagesList)
+    const languagesList = normalizedLanguagesList.length
+      ? normalizedLanguagesList
       : ['Other']
     const displayName =
       projectDraft.displayName.trim()
@@ -524,6 +555,33 @@ export default function DashboardPage() {
                     )
                   })}
                 </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <input
+                    type="text"
+                    value={projectDraft.customLanguage}
+                    onChange={(event) =>
+                      setProjectDraft((currentDraft) => ({
+                        ...currentDraft,
+                        customLanguage: event.target.value,
+                      }))
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleCustomLanguageAdd()
+                      }
+                    }}
+                    placeholder="Add another language, for example Kotlin"
+                    className="min-w-0 flex-1 rounded-2xl border border-gray-200 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-500/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCustomLanguageAdd}
+                    className="rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-gray-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Add custom language
+                  </button>
+                </div>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   The project card will show these as a language list. No file
                   scanning or percentage breakdown will be generated.
@@ -532,7 +590,7 @@ export default function DashboardPage() {
                   {`${usedProjectCount}/${MAX_PROJECTS} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {`Default env on add: ${PROJECT_ENVIRONMENTS[0]}`}
+                  {`Default env on add: ${DEFAULT_PROJECT_ENVIRONMENTS[0]}`}
                 </p>
               </div>
 

@@ -1,1 +1,1 @@
-export const PROJECT_ENVIRONMENTS = ['DEV', 'STG', 'PROD']
+export const DEFAULT_PROJECT_ENVIRONMENTS = ['DEV', 'STG', 'PROD']

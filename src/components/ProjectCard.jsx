@@ -4,13 +4,14 @@ import {
   Bookmark,
   ChevronDown,
   Copy,
+  Plus,
   ExternalLink,
   FolderOpen,
   Link2,
   MoreVertical,
   StickyNote,
 } from 'lucide-react'
-import { PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
+import { DEFAULT_PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
 import { Timestamp, doc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { EDITORS } from '../constants/editorSchemes'
@@ -24,7 +25,10 @@ import {
   getPrimaryProjectLanguage,
   getProjectLanguages,
 } from '../utils/projectLanguages'
-import { getProjectEnvironment } from '../utils/projectEnvironments'
+import {
+  getProjectEnvironment,
+  getProjectEnvironmentNames,
+} from '../utils/projectEnvironments'
 import ConfirmDialog from './ConfirmDialog'
 import LanguageBadge from './LanguageBadge'
 import LanguageBar from './LanguageBar'
@@ -44,6 +48,16 @@ function getTagClass(tag) {
 
 function arraysMatch(left = [], right = []) {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function toUniqueValues(values = []) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean),
+    ),
+  )
 }
 
 function openEditorInNewBrowserContext(url) {
@@ -105,10 +119,16 @@ export default function ProjectCard({
   const [isEditingRepository, setIsEditingRepository] = useState(false)
   const [repositoryDraft, setRepositoryDraft] = useState(project.repositoryUrl ?? '')
   const [activeEnvironment, setActiveEnvironment] = useState('DEV')
+  const [isAddingEnvironment, setIsAddingEnvironment] = useState(false)
+  const [environmentDraft, setEnvironmentDraft] = useState('')
   const [isNotesOpen, setIsNotesOpen] = useState(false)
   const [notesDraft, setNotesDraft] = useState('')
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false)
   const [tagDraft, setTagDraft] = useState((project.tags ?? []).join(', '))
+  const [isLanguageEditorOpen, setIsLanguageEditorOpen] = useState(false)
+  const [languageDraft, setLanguageDraft] = useState(
+    getProjectLanguages(project).join(', '),
+  )
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const [isEditorPickerOpen, setIsEditorPickerOpen] = useState(false)
@@ -131,6 +151,7 @@ export default function ProjectCard({
   const operatingSystemLabel = getOperatingSystemLabel(operatingSystem)
   const selectedEditor =
     EDITORS.find((editor) => editor.scheme === selectedEditorScheme) ?? EDITORS[0]
+  const environmentNames = getProjectEnvironmentNames(project)
   const environmentData = getProjectEnvironment(project, activeEnvironment)
 
   useEffect(() => {
@@ -152,6 +173,16 @@ export default function ProjectCard({
   useEffect(() => {
     setTagDraft((project.tags ?? []).join(', '))
   }, [project.tags])
+
+  useEffect(() => {
+    setLanguageDraft(getProjectLanguages(project).join(', '))
+  }, [project])
+
+  useEffect(() => {
+    if (!environmentNames.includes(activeEnvironment)) {
+      setActiveEnvironment(DEFAULT_PROJECT_ENVIRONMENTS[0])
+    }
+  }, [activeEnvironment, environmentNames])
 
   useEffect(() => {
     setIsNotesExpanded(false)
@@ -374,6 +405,65 @@ export default function ProjectCard({
       { tags: nextTags },
       { successMessage: 'Project tags updated.' },
     )
+  }
+
+  async function commitLanguages() {
+    const nextLanguages = toUniqueValues(languageDraft.split(','))
+
+    setIsLanguageEditorOpen(false)
+
+    if (!nextLanguages.length) {
+      addToast('Add at least one programming language for this project.', 'error')
+      setLanguageDraft(getProjectLanguages(project).join(', '))
+      return
+    }
+
+    const currentLanguages = getProjectLanguages(project)
+
+    if (arraysMatch(nextLanguages, currentLanguages)) {
+      return
+    }
+
+    await saveProjectUpdate(
+      {
+        languagesList: nextLanguages,
+        primaryLanguage: nextLanguages[0] ?? 'Other',
+      },
+      { successMessage: 'Programming languages updated.' },
+    )
+  }
+
+  async function handleAddEnvironment() {
+    const nextEnvironment = environmentDraft.trim().toUpperCase()
+
+    if (!nextEnvironment) {
+      addToast('Type an environment name before adding it.', 'info')
+      return
+    }
+
+    if (environmentNames.includes(nextEnvironment)) {
+      addToast(`${nextEnvironment} already exists on this project.`, 'info')
+      setActiveEnvironment(nextEnvironment)
+      setEnvironmentDraft('')
+      setIsAddingEnvironment(false)
+      return
+    }
+
+    await saveProjectUpdate(
+      {
+        [`environments.${nextEnvironment}`]: {
+          absolutePath: '',
+          notes: '',
+          isBroken: false,
+          lastOpenedAt: null,
+        },
+      },
+      { successMessage: `${nextEnvironment} environment added.` },
+    )
+
+    setActiveEnvironment(nextEnvironment)
+    setEnvironmentDraft('')
+    setIsAddingEnvironment(false)
   }
 
   async function handleTogglePin() {
@@ -606,6 +696,16 @@ export default function ProjectCard({
                     type="button"
                     onClick={() => {
                       setIsMenuOpen(false)
+                      setIsLanguageEditorOpen(true)
+                    }}
+                    className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Add/edit languages
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false)
                       setIsEditingPath(true)
                     }}
                     className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -690,7 +790,7 @@ export default function ProjectCard({
           )}
 
           <div className="flex flex-wrap gap-2">
-            {PROJECT_ENVIRONMENTS.map((environment) => {
+            {environmentNames.map((environment) => {
               const isActive = environment === activeEnvironment
               const hasEnvironmentPath = Boolean(
                 getProjectEnvironment(project, environment).absolutePath,
@@ -713,6 +813,41 @@ export default function ProjectCard({
                 </button>
               )
             })}
+            {isAddingEnvironment ? (
+              <input
+                autoFocus
+                type="text"
+                value={environmentDraft}
+                onChange={(event) => setEnvironmentDraft(event.target.value)}
+                onBlur={() => {
+                  if (!environmentDraft.trim()) {
+                    setIsAddingEnvironment(false)
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void handleAddEnvironment()
+                  }
+
+                  if (event.key === 'Escape') {
+                    setIsAddingEnvironment(false)
+                    setEnvironmentDraft('')
+                  }
+                }}
+                placeholder="QA"
+                className="w-24 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase text-slate-900 outline-none focus:border-blue-400 dark:border-blue-500/40 dark:bg-slate-800 dark:text-white"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsAddingEnvironment(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/30 dark:text-blue-200 dark:hover:bg-blue-500/10"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add env
+              </button>
+            )}
           </div>
 
           {isEditingPath ? (
@@ -738,9 +873,9 @@ export default function ProjectCard({
                 className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 dark:border-blue-500/40 dark:bg-slate-800 dark:text-white"
               />
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Paste the local folder path you want VS Code or Cursor to open
+                Paste the local folder path you want VS Code or Cursor or Antigravity to open
                 for the {activeEnvironment} environment. ProMan will clean
-                `code /Users/...` or `vscode://file/...` into the stored path
+                `code /Users/...` into the stored path
                 automatically.
               </p>
             </div>
@@ -874,6 +1009,35 @@ export default function ProjectCard({
             placeholder="frontend, client, firebase"
             className="rounded-xl border border-gray-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-500/20"
           />
+        )}
+
+        {isLanguageEditorOpen && (
+          <div className="grid gap-2">
+            <input
+              autoFocus
+              type="text"
+              value={languageDraft}
+              onChange={(event) => setLanguageDraft(event.target.value)}
+              onBlur={commitLanguages}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void commitLanguages()
+                }
+
+                if (event.key === 'Escape') {
+                  setIsLanguageEditorOpen(false)
+                  setLanguageDraft(getProjectLanguages(project).join(', '))
+                }
+              }}
+              placeholder="TypeScript, Go, Kotlin"
+              className="rounded-xl border border-gray-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-500/20"
+            />
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Separate multiple languages with commas. You can add custom
+              languages even if they are not in ProMan&apos;s default list.
+            </p>
+          </div>
         )}
 
         {isNotesOpen && (

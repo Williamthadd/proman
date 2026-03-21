@@ -11,7 +11,7 @@ When you're ready to code, just hit the Open in VS Code or Open in Cursor button
 Key features:
 - Import local project folders directly from your browser
 - Auto-detects programming languages and line counts
-- Instantly open any project in VS Code or Cursor with one click
+- Instantly open any project in VS Code or Cursor or Antigravity with one click
 - Search and filter projects by name, language, or tag
 - Pin your most-used projects to the top
 - Add personal notes and tags to each project
