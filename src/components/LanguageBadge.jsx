@@ -7,6 +7,8 @@ const BADGE_CLASS_BY_HEX = {
     'bg-[#F7DF1E] text-slate-900 ring-[#F7DF1E]/40 dark:ring-[#F7DF1E]/30',
   [LANGUAGE_COLORS.Python]:
     'bg-[#3572A5] text-white ring-[#3572A5]/30 dark:ring-[#3572A5]/40',
+  [LANGUAGE_COLORS.Dart]:
+    'bg-[#0175C2] text-white ring-[#0175C2]/30 dark:ring-[#0175C2]/40',
   [LANGUAGE_COLORS.Go]:
     'bg-[#00ADD8] text-slate-900 ring-[#00ADD8]/30 dark:ring-[#00ADD8]/40',
   [LANGUAGE_COLORS.Rust]:
@@ -29,6 +31,7 @@ const SHORT_LABELS = {
   TypeScript: 'TS',
   JavaScript: 'JS',
   Python: 'PY',
+  Dart: 'DART',
   Go: 'GO',
   Rust: 'RS',
   HTML: 'HTML',

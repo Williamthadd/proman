@@ -10,6 +10,7 @@ import {
   MoreVertical,
   StickyNote,
 } from 'lucide-react'
+import { PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
 import { Timestamp, doc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { EDITORS } from '../constants/editorSchemes'
@@ -23,6 +24,7 @@ import {
   getPrimaryProjectLanguage,
   getProjectLanguages,
 } from '../utils/projectLanguages'
+import { getProjectEnvironment } from '../utils/projectEnvironments'
 import ConfirmDialog from './ConfirmDialog'
 import LanguageBadge from './LanguageBadge'
 import LanguageBar from './LanguageBar'
@@ -93,11 +95,12 @@ export default function ProjectCard({
   const [isEditingName, setIsEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(project.displayName ?? 'Untitled project')
   const [isEditingPath, setIsEditingPath] = useState(false)
-  const [pathDraft, setPathDraft] = useState(project.absolutePath ?? '')
+  const [pathDraft, setPathDraft] = useState('')
   const [isEditingRepository, setIsEditingRepository] = useState(false)
   const [repositoryDraft, setRepositoryDraft] = useState(project.repositoryUrl ?? '')
+  const [activeEnvironment, setActiveEnvironment] = useState('DEV')
   const [isNotesOpen, setIsNotesOpen] = useState(false)
-  const [notesDraft, setNotesDraft] = useState(project.notes ?? '')
+  const [notesDraft, setNotesDraft] = useState('')
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false)
   const [tagDraft, setTagDraft] = useState((project.tags ?? []).join(', '))
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -119,22 +122,23 @@ export default function ProjectCard({
   const operatingSystemLabel = getOperatingSystemLabel(operatingSystem)
   const selectedEditor =
     EDITORS.find((editor) => editor.scheme === selectedEditorScheme) ?? EDITORS[0]
+  const environmentData = getProjectEnvironment(project, activeEnvironment)
 
   useEffect(() => {
     setNameDraft(project.displayName ?? 'Untitled project')
   }, [project.displayName])
 
   useEffect(() => {
-    setPathDraft(project.absolutePath ?? '')
-  }, [project.absolutePath])
+    setPathDraft(environmentData.absolutePath ?? '')
+  }, [environmentData.absolutePath])
 
   useEffect(() => {
     setRepositoryDraft(project.repositoryUrl ?? '')
   }, [project.repositoryUrl])
 
   useEffect(() => {
-    setNotesDraft(project.notes ?? '')
-  }, [project.notes])
+    setNotesDraft(environmentData.notes ?? '')
+  }, [environmentData.notes])
 
   useEffect(() => {
     setTagDraft((project.tags ?? []).join(', '))
@@ -225,17 +229,27 @@ export default function ProjectCard({
 
   async function commitNotes() {
     const nextNotes = notesDraft.trim()
-    const currentNotes = (project.notes ?? '').trim()
+    const currentNotes = (environmentData.notes ?? '').trim()
     setIsNotesOpen(false)
 
     if (nextNotes === currentNotes) {
       return
     }
 
+    const nextPatch = {
+      [`environments.${activeEnvironment}.notes`]: nextNotes,
+    }
+
+    if (activeEnvironment === 'DEV') {
+      nextPatch.notes = nextNotes
+    }
+
     await saveProjectUpdate(
-      { notes: nextNotes },
+      nextPatch,
       {
-        successMessage: nextNotes ? 'Notes updated.' : 'Notes cleared.',
+        successMessage: nextNotes
+          ? `${activeEnvironment} notes updated.`
+          : `${activeEnvironment} notes cleared.`,
       },
     )
   }
@@ -257,9 +271,9 @@ export default function ProjectCard({
 
   function handleNotesClick() {
     addToast(
-      project.notes
-        ? 'Right-click the notes area and choose Edit Notes to update this note.'
-        : 'Right-click the notes button and choose Edit Notes to add a note.',
+      environmentData.notes
+        ? `Right-click the notes area and choose Edit Notes to update the ${activeEnvironment} note.`
+        : `Right-click the notes button and choose Edit Notes to add a ${activeEnvironment} note.`,
       'info',
     )
   }
@@ -272,8 +286,18 @@ export default function ProjectCard({
     setIsNotesOpen(true)
   }
 
+  function handleEnvironmentSelect(environment) {
+    setActiveEnvironment(environment)
+    setIsEditingPath(false)
+    setIsNotesOpen(false)
+    setNotesMenuState((currentState) => ({
+      ...currentState,
+      isOpen: false,
+    }))
+  }
+
   async function handleCopyNotesText() {
-    const nextText = notesMenuState.selectedText || (project.notes ?? '')
+    const nextText = notesMenuState.selectedText || (environmentData.notes ?? '')
 
     if (!nextText) {
       addToast('There is no notes text to copy yet.', 'info')
@@ -336,12 +360,12 @@ export default function ProjectCard({
   }
 
   async function handleOpenEditor(editor) {
-    const targetPath = normalizeProjectPath(project.absolutePath)
+    const targetPath = normalizeProjectPath(environmentData.absolutePath)
 
-    if (project.isBroken || !targetPath) {
+    if (environmentData.isBroken || !targetPath) {
       setIsEditingPath(true)
       addToast(
-        'Set the correct local project path before opening this project in your editor.',
+        `Set the correct ${activeEnvironment} project path before opening this project in your editor.`,
         'info',
       )
       return
@@ -352,11 +376,12 @@ export default function ProjectCard({
 
       await saveProjectUpdate(
         {
+          [`environments.${activeEnvironment}.lastOpenedAt`]: Timestamp.now(),
+          [`environments.${activeEnvironment}.isBroken`]: false,
           lastOpenedAt: Timestamp.now(),
-          isBroken: false,
         },
         {
-          successMessage: `Sent ${project.displayName} to ${editor.label.replace('Open in ', '')}. If your editor reuses the current window, use the new-window command in the menu.`,
+          successMessage: `Sent ${project.displayName} ${activeEnvironment} to ${editor.label.replace('Open in ', '')}. If your editor reuses the current window, use the new-window command in the menu.`,
           errorMessage: 'Unable to update the last opened timestamp.',
           touchUpdatedAt: false,
         },
@@ -369,12 +394,12 @@ export default function ProjectCard({
   }
 
   async function handleCopyNewWindowCommand(editor) {
-    const targetPath = normalizeProjectPath(project.absolutePath)
+    const targetPath = normalizeProjectPath(environmentData.absolutePath)
 
-    if (project.isBroken || !targetPath) {
+    if (environmentData.isBroken || !targetPath) {
       setIsEditingPath(true)
       addToast(
-        'Set the correct local project path before copying a launch command.',
+        `Set the correct ${activeEnvironment} project path before copying a launch command.`,
         'info',
       )
       return
@@ -415,23 +440,30 @@ export default function ProjectCard({
 
   async function commitPath() {
     const nextPath = normalizeProjectPath(pathDraft)
-    const currentPath = normalizeProjectPath(project.absolutePath)
+    const currentPath = normalizeProjectPath(environmentData.absolutePath)
     setIsEditingPath(false)
 
     if (nextPath === currentPath) {
-      setPathDraft(project.absolutePath ?? '')
+      setPathDraft(environmentData.absolutePath ?? '')
       return
     }
 
+    const nextPatch = {
+      [`environments.${activeEnvironment}.absolutePath`]: nextPath,
+      [`environments.${activeEnvironment}.isBroken`]: !nextPath,
+    }
+
+    if (activeEnvironment === 'DEV') {
+      nextPatch.absolutePath = nextPath
+      nextPatch.isBroken = !nextPath
+    }
+
     await saveProjectUpdate(
-      {
-        absolutePath: nextPath,
-        isBroken: !nextPath,
-      },
+      nextPatch,
       {
         successMessage: nextPath
-          ? 'Project path updated.'
-          : 'Project path cleared. Add a local path to re-enable IDE shortcuts.',
+          ? `${activeEnvironment} path updated.`
+          : `${activeEnvironment} path cleared. Add a local path to re-enable IDE shortcuts.`,
         errorMessage: 'Unable to update that project path right now.',
       },
     )
@@ -629,6 +661,32 @@ export default function ProjectCard({
             </button>
           )}
 
+          <div className="flex flex-wrap gap-2">
+            {PROJECT_ENVIRONMENTS.map((environment) => {
+              const isActive = environment === activeEnvironment
+              const hasEnvironmentPath = Boolean(
+                getProjectEnvironment(project, environment).absolutePath,
+              )
+
+              return (
+                <button
+                  key={environment}
+                  type="button"
+                  onClick={() => handleEnvironmentSelect(environment)}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : hasEnvironmentPath
+                        ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-200 dark:hover:bg-blue-500/20'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {environment}
+                </button>
+              )
+            })}
+          </div>
+
           {isEditingPath ? (
             <div className="grid gap-2">
               <input
@@ -645,16 +703,17 @@ export default function ProjectCard({
 
                   if (event.key === 'Escape') {
                     setIsEditingPath(false)
-                    setPathDraft(project.absolutePath ?? '')
+                    setPathDraft(environmentData.absolutePath ?? '')
                   }
                 }}
-                placeholder="/Users/... or code /Users/..."
+                placeholder={`Add the ${activeEnvironment} path, for example /Users/... or code /Users/...`}
                 className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 dark:border-blue-500/40 dark:bg-slate-800 dark:text-white"
               />
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Paste the local folder path you want VS Code or Cursor to open.
-                ProMan will clean `code /Users/...` or `vscode://file/...`
-                into the stored path automatically.
+                Paste the local folder path you want VS Code or Cursor to open
+                for the {activeEnvironment} environment. ProMan will clean
+                `code /Users/...` or `vscode://file/...` into the stored path
+                automatically.
               </p>
             </div>
           ) : (
@@ -663,22 +722,25 @@ export default function ProjectCard({
                 type="button"
                 onClick={() => setIsEditingPath(true)}
                 className="truncate text-left text-sm text-slate-500 transition hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-200"
-                title={project.absolutePath || 'Set project path'}
+                title={
+                  environmentData.absolutePath || `Set ${activeEnvironment} path`
+                }
               >
-                {project.absolutePath || 'Set local project path to enable IDE shortcuts'}
+                {environmentData.absolutePath ||
+                  `Set ${activeEnvironment} path to enable IDE shortcuts`}
               </button>
 
-              {project.notes ? (
+              {environmentData.notes ? (
                 <div
                   onContextMenu={openNotesContextMenu}
                   className="mt-2 cursor-text select-text overflow-hidden rounded-2xl border border-blue-200 bg-blue-50 px-3 py-3 text-left text-sm leading-6 text-slate-700 transition hover:border-blue-300 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-slate-200 dark:hover:border-blue-400/40"
-                  title={project.notes}
+                  title={environmentData.notes}
                 >
                   <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
-                    Notes
+                    {`${activeEnvironment} Notes`}
                   </span>
                   <span className="line-clamp-3 block whitespace-pre-wrap break-words">
-                    {project.notes}
+                    {environmentData.notes}
                   </span>
                 </div>
               ) : null}
@@ -780,19 +842,19 @@ export default function ProjectCard({
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
                 setIsNotesOpen(false)
-                setNotesDraft(project.notes ?? '')
+                setNotesDraft(environmentData.notes ?? '')
               }
             }}
-            placeholder="Capture project notes, repo reminders, or local setup steps..."
+            placeholder={`Capture ${activeEnvironment} notes, repo reminders, or local setup steps...`}
             className="resize-none rounded-2xl border border-gray-200 px-3 py-3 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-500/20"
           />
         )}
 
-        {project.isBroken && (
+        {environmentData.isBroken && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
             <span className="inline-flex items-center gap-2 font-medium">
               <AlertTriangle className="h-4 w-4" />
-              ⚠ Path may be broken
+              {`⚠ ${activeEnvironment} path may be broken`}
             </span>
             <button
               type="button"
@@ -808,8 +870,8 @@ export default function ProjectCard({
 
         <div className="grid gap-1 text-sm text-slate-500 dark:text-slate-400">
           <p>{`Updated ${formatRelativeTime(project.lastUpdatedAt)}`}</p>
-          {project.lastOpenedAt ? (
-            <p>{`Last opened ${formatRelativeTime(project.lastOpenedAt)}`}</p>
+          {environmentData.lastOpenedAt ? (
+            <p>{`Last opened ${formatRelativeTime(environmentData.lastOpenedAt)}`}</p>
           ) : null}
         </div>
 
@@ -835,14 +897,14 @@ export default function ProjectCard({
         )}
 
         <div className="mt-auto flex justify-end">
-          {project.isBroken || !project.absolutePath ? (
+          {environmentData.isBroken || !environmentData.absolutePath ? (
             <button
               type="button"
               onClick={() => setIsEditingPath(true)}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
             >
               <FolderOpen className="h-4 w-4" />
-              Set project path
+              {`Set ${activeEnvironment} path`}
             </button>
           ) : (
             <div className="relative inline-flex" ref={editorPickerRef}>

@@ -5,6 +5,7 @@ const COLOR_CLASS_BY_HEX = {
   [LANGUAGE_COLORS.TypeScript]: 'bg-[#3178C6]',
   [LANGUAGE_COLORS.JavaScript]: 'bg-[#F7DF1E]',
   [LANGUAGE_COLORS.Python]: 'bg-[#3572A5]',
+  [LANGUAGE_COLORS.Dart]: 'bg-[#0175C2]',
   [LANGUAGE_COLORS.Go]: 'bg-[#00ADD8]',
   [LANGUAGE_COLORS.Rust]: 'bg-[#DEA584]',
   [LANGUAGE_COLORS.HTML]: 'bg-[#E34C26]',

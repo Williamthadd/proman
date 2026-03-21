@@ -9,6 +9,7 @@ import SkeletonCard from '../components/SkeletonCard'
 import SortFilterBar from '../components/SortFilterBar'
 import ToastContainer from '../components/ToastContainer'
 import { LANGUAGE_COLORS } from '../constants/languageColors'
+import { PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
 import { db } from '../firebase'
 import useAuth from '../hooks/useAuth'
 import useProjects from '../hooks/useProjects'
@@ -22,6 +23,10 @@ import {
   getPrimaryProjectLanguage,
   getProjectLanguages,
 } from '../utils/projectLanguages'
+import {
+  buildProjectEnvironments,
+  getProjectPathValues,
+} from '../utils/projectEnvironments'
 
 function isTypingTarget(element) {
   if (!element) {
@@ -163,7 +168,9 @@ export default function DashboardPage() {
         const matchesSearch =
           !searchTerm ||
           (project.displayName ?? '').toLowerCase().includes(searchTerm) ||
-          (project.absolutePath ?? '').toLowerCase().includes(searchTerm)
+          getProjectPathValues(project).some((path) =>
+            path.toLowerCase().includes(searchTerm),
+          )
 
         const matchesLanguage =
           filterLang === 'all' ||
@@ -259,6 +266,12 @@ export default function DashboardPage() {
     const displayName =
       projectDraft.displayName.trim()
     const timestamp = Timestamp.now()
+    const environments = buildProjectEnvironments({
+      absolutePath,
+      notes: '',
+      isBroken: false,
+      lastOpenedAt: null,
+    })
 
     setManualImportState({
       active: true,
@@ -270,6 +283,7 @@ export default function DashboardPage() {
         displayName,
         absolutePath,
         repositoryUrl,
+        environments,
         primaryLanguage: languagesList[0] ?? 'Other',
         languagesList,
         tags: [],
@@ -516,6 +530,9 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-sm font-medium text-blue-700 dark:text-blue-200">
                   {`${usedProjectCount}/${MAX_PROJECTS} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {`Default env on add: ${PROJECT_ENVIRONMENTS[0]}`}
                 </p>
               </div>
 
