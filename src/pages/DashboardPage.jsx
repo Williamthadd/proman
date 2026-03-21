@@ -16,6 +16,7 @@ import useToast from '../hooks/useToast'
 import {
   getTimeValue,
   normalizeProjectPath,
+  normalizeRepositoryUrl,
 } from '../utils/formatters'
 import {
   getPrimaryProjectLanguage,
@@ -66,7 +67,7 @@ function getImportErrorMessage(error) {
   return 'Unable to add that project right now.'
 }
 
-const MAX_PROJECTS = 10
+const MAX_PROJECTS = 15
 const MANUAL_LANGUAGE_OPTIONS = Object.keys(LANGUAGE_COLORS).filter(
   (language) => language !== 'Other',
 )
@@ -90,11 +91,13 @@ export default function DashboardPage() {
   const [projectDraft, setProjectDraft] = useState({
     displayName: '',
     absolutePath: '',
+    repositoryUrl: '',
     languagesList: [],
   })
   const searchInputRef = useRef(null)
-  const hasReachedProjectLimit = projects.length >= MAX_PROJECTS
-  const remainingProjectSlots = Math.max(0, MAX_PROJECTS - projects.length)
+  const usedProjectCount = projects.length
+  const hasReachedProjectLimit = usedProjectCount >= MAX_PROJECTS
+  const remainingProjectSlots = Math.max(0, MAX_PROJECTS - usedProjectCount)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
@@ -184,6 +187,7 @@ export default function DashboardPage() {
     setProjectDraft({
       displayName: '',
       absolutePath: '',
+      repositoryUrl: '',
       languagesList: [],
     })
   }
@@ -232,9 +236,20 @@ export default function DashboardPage() {
     }
 
     const absolutePath = normalizeProjectPath(projectDraft.absolutePath)
+    const repositoryUrl = projectDraft.repositoryUrl.trim()
+      ? normalizeRepositoryUrl(projectDraft.repositoryUrl)
+      : ''
 
     if (!absolutePath) {
       addToast('Add the local project path before saving.', 'error')
+      return
+    }
+
+    if (projectDraft.repositoryUrl.trim() && !repositoryUrl) {
+      addToast(
+        'Add a valid repository URL like https://github.com/owner/repository.',
+        'error',
+      )
       return
     }
 
@@ -254,6 +269,7 @@ export default function DashboardPage() {
       await addDoc(collection(db, 'users', user.uid, 'projects'), {
         displayName,
         absolutePath,
+        repositoryUrl,
         primaryLanguage: languagesList[0] ?? 'Other',
         languagesList,
         tags: [],
@@ -332,7 +348,7 @@ export default function DashboardPage() {
                   Projects
                 </p>
                 <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                  {projects.length}
+                  {usedProjectCount}
                 </p>
               </div>
               <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-inset ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
@@ -373,7 +389,7 @@ export default function DashboardPage() {
           <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
             {hasReachedProjectLimit
               ? `Free plan: Project limit reached. Each account can only import ${MAX_PROJECTS} projects here.`
-              : `Free plan: ${remainingProjectSlots} of ${MAX_PROJECTS} project slot${remainingProjectSlots === 1 ? '' : 's'} remaining.`}
+              : `Free plan: ${usedProjectCount}/${MAX_PROJECTS} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
           </p>
         </section>
 
@@ -447,6 +463,28 @@ export default function DashboardPage() {
                 </label>
               </div>
 
+              <label className="grid gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                  Repository link
+                </span>
+                <input
+                  type="text"
+                  value={projectDraft.repositoryUrl}
+                  onChange={(event) =>
+                    setProjectDraft((currentDraft) => ({
+                      ...currentDraft,
+                      repositoryUrl: event.target.value,
+                    }))
+                  }
+                  placeholder="Optional, for example github.com/owner/repository"
+                  className="rounded-2xl border border-gray-200 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-500/20"
+                />
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Optional. Add a repository URL so the card can open the repo
+                  directly in a browser tab.
+                </p>
+              </label>
+
               <div className="grid gap-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
                   Programming languages
@@ -477,7 +515,7 @@ export default function DashboardPage() {
                   scanning or percentage breakdown will be generated.
                 </p>
                 <p className="text-sm font-medium text-blue-700 dark:text-blue-200">
-                  {`${projects.length}/${MAX_PROJECTS} projects used.`}
+                  {`${usedProjectCount}/${MAX_PROJECTS} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
                 </p>
               </div>
 

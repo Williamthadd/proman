@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Bookmark,
+  ChevronDown,
   Copy,
+  ExternalLink,
   FolderOpen,
+  Link2,
   MoreVertical,
   StickyNote,
 } from 'lucide-react'
@@ -11,6 +14,8 @@ import { Timestamp, doc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { EDITORS } from '../constants/editorSchemes'
 import {
+  getRepositoryLabel,
+  normalizeRepositoryUrl,
   normalizeProjectPath,
   formatRelativeTime,
 } from '../utils/formatters'
@@ -89,15 +94,24 @@ export default function ProjectCard({
   const [nameDraft, setNameDraft] = useState(project.displayName ?? 'Untitled project')
   const [isEditingPath, setIsEditingPath] = useState(false)
   const [pathDraft, setPathDraft] = useState(project.absolutePath ?? '')
+  const [isEditingRepository, setIsEditingRepository] = useState(false)
+  const [repositoryDraft, setRepositoryDraft] = useState(project.repositoryUrl ?? '')
   const [isNotesOpen, setIsNotesOpen] = useState(false)
   const [notesDraft, setNotesDraft] = useState(project.notes ?? '')
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false)
   const [tagDraft, setTagDraft] = useState((project.tags ?? []).join(', '))
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
+  const [isEditorPickerOpen, setIsEditorPickerOpen] = useState(false)
+  const [selectedEditorScheme, setSelectedEditorScheme] = useState(
+    EDITORS[0]?.scheme ?? '',
+  )
   const menuRef = useRef(null)
+  const editorPickerRef = useRef(null)
   const operatingSystem = getOperatingSystem()
   const operatingSystemLabel = getOperatingSystemLabel(operatingSystem)
+  const selectedEditor =
+    EDITORS.find((editor) => editor.scheme === selectedEditorScheme) ?? EDITORS[0]
 
   useEffect(() => {
     setNameDraft(project.displayName ?? 'Untitled project')
@@ -108,6 +122,10 @@ export default function ProjectCard({
   }, [project.absolutePath])
 
   useEffect(() => {
+    setRepositoryDraft(project.repositoryUrl ?? '')
+  }, [project.repositoryUrl])
+
+  useEffect(() => {
     setNotesDraft(project.notes ?? '')
   }, [project.notes])
 
@@ -116,7 +134,7 @@ export default function ProjectCard({
   }, [project.tags])
 
   useEffect(() => {
-    if (!isMenuOpen) {
+    if (!isMenuOpen && !isEditorPickerOpen) {
       return undefined
     }
 
@@ -124,13 +142,20 @@ export default function ProjectCard({
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         setIsMenuOpen(false)
       }
+
+      if (
+        editorPickerRef.current &&
+        !editorPickerRef.current.contains(event.target)
+      ) {
+        setIsEditorPickerOpen(false)
+      }
     }
 
     document.addEventListener('mousedown', handlePointerDown)
     return () => {
       document.removeEventListener('mousedown', handlePointerDown)
     }
-  }, [isMenuOpen])
+  }, [isEditorPickerOpen, isMenuOpen])
 
   async function saveProjectUpdate(
     patch,
@@ -294,6 +319,24 @@ export default function ProjectCard({
     }
   }
 
+  function handleOpenRepository() {
+    const targetUrl = normalizeRepositoryUrl(project.repositoryUrl)
+
+    if (!targetUrl) {
+      setIsEditingRepository(true)
+      addToast('Add a valid repository URL before opening the repository.', 'info')
+      return
+    }
+
+    window.open(targetUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  async function handleSelectEditor(editor) {
+    setSelectedEditorScheme(editor.scheme)
+    setIsEditorPickerOpen(false)
+    await handleOpenEditor(editor)
+  }
+
   async function commitPath() {
     const nextPath = normalizeProjectPath(pathDraft)
     const currentPath = normalizeProjectPath(project.absolutePath)
@@ -314,6 +357,41 @@ export default function ProjectCard({
           ? 'Project path updated.'
           : 'Project path cleared. Add a local path to re-enable IDE shortcuts.',
         errorMessage: 'Unable to update that project path right now.',
+      },
+    )
+  }
+
+  async function commitRepository() {
+    const hasTypedRepository = Boolean(repositoryDraft.trim())
+    const nextRepositoryUrl = hasTypedRepository
+      ? normalizeRepositoryUrl(repositoryDraft)
+      : ''
+    const currentRepositoryUrl = normalizeRepositoryUrl(project.repositoryUrl)
+    setIsEditingRepository(false)
+
+    if (hasTypedRepository && !nextRepositoryUrl) {
+      addToast(
+        'Add a valid repository URL like https://github.com/owner/repository.',
+        'error',
+      )
+      setRepositoryDraft(project.repositoryUrl ?? '')
+      return
+    }
+
+    if (nextRepositoryUrl === currentRepositoryUrl) {
+      setRepositoryDraft(project.repositoryUrl ?? '')
+      return
+    }
+
+    await saveProjectUpdate(
+      { repositoryUrl: nextRepositoryUrl },
+      {
+        successMessage: nextRepositoryUrl
+          ? currentRepositoryUrl
+            ? 'Repository link updated.'
+            : 'Repository link added.'
+          : 'Repository link removed.',
+        errorMessage: 'Unable to update that repository link right now.',
       },
     )
   }
@@ -399,6 +477,16 @@ export default function ProjectCard({
                     className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
                     Edit project path
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false)
+                      setIsEditingRepository(true)
+                    }}
+                    className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Edit repository link
                   </button>
                   {EDITORS.map((editor) => (
                     <div key={editor.scheme} className="grid gap-1">
@@ -496,14 +584,88 @@ export default function ProjectCard({
               </p>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setIsEditingPath(true)}
-              className="truncate text-left text-sm text-slate-500 transition hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-200"
-              title={project.absolutePath || 'Set project path'}
-            >
-              {project.absolutePath || 'Set local project path to enable IDE shortcuts'}
-            </button>
+            <div className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditingPath(true)}
+                className="truncate text-left text-sm text-slate-500 transition hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-200"
+                title={project.absolutePath || 'Set project path'}
+              >
+                {project.absolutePath || 'Set local project path to enable IDE shortcuts'}
+              </button>
+
+              {project.notes ? (
+                <button
+                  type="button"
+                  onClick={() => setIsNotesOpen(true)}
+                  className="line-clamp-3 text-left text-sm leading-6 text-slate-600 transition hover:text-blue-700 dark:text-slate-300 dark:hover:text-blue-200"
+                  title={project.notes}
+                >
+                  {project.notes}
+                </button>
+              ) : null}
+
+              {isEditingRepository ? (
+                <div className="grid gap-2">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={repositoryDraft}
+                    onChange={(event) => setRepositoryDraft(event.target.value)}
+                    onBlur={commitRepository}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        void commitRepository()
+                      }
+
+                      if (event.key === 'Escape') {
+                        setIsEditingRepository(false)
+                        setRepositoryDraft(project.repositoryUrl ?? '')
+                      }
+                    }}
+                    placeholder="https://github.com/owner/repository"
+                    className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 dark:border-blue-500/40 dark:bg-slate-800 dark:text-white"
+                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Add a repository link so this card can open the repo in a
+                    browser tab.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (project.repositoryUrl) {
+                      handleOpenRepository()
+                      return
+                    }
+
+                    setIsEditingRepository(true)
+                  }}
+                  className={`inline-flex items-center gap-2 text-left text-xs font-semibold transition ${
+                    project.repositoryUrl
+                      ? 'text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200'
+                      : 'text-slate-500 hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-200'
+                  }`}
+                  title={
+                    project.repositoryUrl
+                      ? project.repositoryUrl
+                      : 'Add repository link'
+                  }
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  <span className="max-w-[13rem] truncate">
+                    {project.repositoryUrl
+                      ? getRepositoryLabel(project.repositoryUrl)
+                      : 'Add repository link'}
+                  </span>
+                  {project.repositoryUrl ? (
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                  ) : null}
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -589,23 +751,65 @@ export default function ProjectCard({
         )}
 
         <div className="mt-auto flex justify-end">
-          <button
-            type="button"
-            onClick={() => {
-              if (project.isBroken || !project.absolutePath) {
-                setIsEditingPath(true)
-                return
-              }
+          {project.isBroken || !project.absolutePath ? (
+            <button
+              type="button"
+              onClick={() => setIsEditingPath(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              <FolderOpen className="h-4 w-4" />
+              Set project path
+            </button>
+          ) : (
+            <div className="relative inline-flex" ref={editorPickerRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedEditor) {
+                    void handleOpenEditor(selectedEditor)
+                  }
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-l-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                <FolderOpen className="h-4 w-4" />
+                {selectedEditor?.label ?? 'Open project'}
+              </button>
 
-              void handleOpenEditor(EDITORS[0])
-            }}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
-          >
-            <FolderOpen className="h-4 w-4" />
-            {project.isBroken || !project.absolutePath
-              ? 'Set project path'
-              : 'Open in VS Code'}
-          </button>
+              <button
+                type="button"
+                onClick={() => setIsEditorPickerOpen((current) => !current)}
+                className="inline-flex items-center justify-center rounded-r-xl border-l border-white/20 bg-blue-600 px-3 text-white transition hover:bg-blue-700"
+                aria-label="Choose editor"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+
+              {isEditorPickerOpen && (
+                <div className="absolute bottom-14 right-0 z-20 min-w-56 rounded-2xl border border-gray-100 bg-white p-2 shadow-xl dark:border-slate-800 dark:bg-slate-950">
+                  {EDITORS.map((editor) => {
+                    const isSelected = editor.scheme === selectedEditor?.scheme
+
+                    return (
+                      <button
+                        key={editor.scheme}
+                        type="button"
+                        onClick={() => {
+                          void handleSelectEditor(editor)
+                        }}
+                        className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                          isSelected
+                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200'
+                            : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {editor.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </article>
 

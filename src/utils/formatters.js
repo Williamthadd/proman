@@ -75,3 +75,47 @@ export function normalizeProjectPath(value) {
 
   return normalizedValue.trim()
 }
+
+export function normalizeRepositoryUrl(value) {
+  let normalizedValue = (value ?? '').trim()
+
+  if (!normalizedValue) {
+    return ''
+  }
+
+  normalizedValue = normalizedValue.replace(/^["']|["']$/g, '')
+  normalizedValue = normalizedValue.replace(/^git@github\.com:/i, 'https://github.com/')
+  normalizedValue = normalizedValue.replace(/\.git$/i, '')
+
+  if (!/^[a-z]+:\/\//i.test(normalizedValue)) {
+    normalizedValue = `https://${normalizedValue.replace(/^\/+/, '')}`
+  }
+
+  try {
+    const nextUrl = new URL(normalizedValue)
+
+    if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
+      return ''
+    }
+
+    nextUrl.hash = ''
+    return nextUrl.toString().replace(/\/$/, '')
+  } catch {
+    return ''
+  }
+}
+
+export function getRepositoryLabel(value) {
+  const normalizedValue = normalizeRepositoryUrl(value)
+
+  if (!normalizedValue) {
+    return 'Open repository'
+  }
+
+  try {
+    const nextUrl = new URL(normalizedValue)
+    return `${nextUrl.hostname.replace(/^www\./, '')}${nextUrl.pathname.replace(/\/$/, '')}`
+  } catch {
+    return normalizedValue
+  }
+}
