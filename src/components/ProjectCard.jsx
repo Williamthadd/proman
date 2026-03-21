@@ -12,7 +12,7 @@ import {
   StickyNote,
 } from 'lucide-react'
 import { DEFAULT_PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
-import { Timestamp, doc, updateDoc } from 'firebase/firestore'
+import { Timestamp, deleteField, doc, updateDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { EDITORS } from '../constants/editorSchemes'
 import {
@@ -134,6 +134,12 @@ export default function ProjectCard({
   const [isEditorPickerOpen, setIsEditorPickerOpen] = useState(false)
   const [isNotesExpanded, setIsNotesExpanded] = useState(false)
   const [hasExpandableNotes, setHasExpandableNotes] = useState(false)
+  const [environmentMenuState, setEnvironmentMenuState] = useState({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    environment: '',
+  })
   const [notesMenuState, setNotesMenuState] = useState({
     isOpen: false,
     x: 0,
@@ -145,6 +151,7 @@ export default function ProjectCard({
   )
   const menuRef = useRef(null)
   const editorPickerRef = useRef(null)
+  const environmentMenuRef = useRef(null)
   const notesMenuRef = useRef(null)
   const notesPreviewRef = useRef(null)
   const operatingSystem = getOperatingSystem()
@@ -204,7 +211,12 @@ export default function ProjectCard({
   }, [environmentData.notes, activeEnvironment, isNotesExpanded])
 
   useEffect(() => {
-    if (!isMenuOpen && !isEditorPickerOpen && !notesMenuState.isOpen) {
+    if (
+      !isMenuOpen &&
+      !isEditorPickerOpen &&
+      !notesMenuState.isOpen &&
+      !environmentMenuState.isOpen
+    ) {
       return undefined
     }
 
@@ -220,6 +232,16 @@ export default function ProjectCard({
         setIsEditorPickerOpen(false)
       }
 
+      if (
+        environmentMenuRef.current &&
+        !environmentMenuRef.current.contains(event.target)
+      ) {
+        setEnvironmentMenuState((currentState) => ({
+          ...currentState,
+          isOpen: false,
+        }))
+      }
+
       if (notesMenuRef.current && !notesMenuRef.current.contains(event.target)) {
         setNotesMenuState((currentState) => ({
           ...currentState,
@@ -232,7 +254,12 @@ export default function ProjectCard({
     return () => {
       document.removeEventListener('mousedown', handlePointerDown)
     }
-  }, [isEditorPickerOpen, isMenuOpen, notesMenuState.isOpen])
+  }, [
+    environmentMenuState.isOpen,
+    isEditorPickerOpen,
+    isMenuOpen,
+    notesMenuState.isOpen,
+  ])
 
   async function saveProjectUpdate(
     patch,
@@ -349,6 +376,10 @@ export default function ProjectCard({
     setActiveEnvironment(environment)
     setIsEditingPath(false)
     setIsNotesOpen(false)
+    setEnvironmentMenuState((currentState) => ({
+      ...currentState,
+      isOpen: false,
+    }))
     setNotesMenuState((currentState) => ({
       ...currentState,
       isOpen: false,
@@ -464,6 +495,63 @@ export default function ProjectCard({
     setActiveEnvironment(nextEnvironment)
     setEnvironmentDraft('')
     setIsAddingEnvironment(false)
+  }
+
+  function openEnvironmentContextMenu(event, environment) {
+    if (DEFAULT_PROJECT_ENVIRONMENTS.includes(environment)) {
+      return
+    }
+
+    event.preventDefault()
+
+    const nextX = Math.min(event.clientX, window.innerWidth - 220)
+    const nextY = Math.min(event.clientY, window.innerHeight - 120)
+
+    setEnvironmentMenuState({
+      isOpen: true,
+      x: Math.max(12, nextX),
+      y: Math.max(12, nextY),
+      environment,
+    })
+  }
+
+  async function handleRemoveEnvironment() {
+    const targetEnvironment = environmentMenuState.environment
+
+    if (
+      !targetEnvironment ||
+      DEFAULT_PROJECT_ENVIRONMENTS.includes(targetEnvironment)
+    ) {
+      setEnvironmentMenuState((currentState) => ({
+        ...currentState,
+        isOpen: false,
+      }))
+      return
+    }
+
+    const nextEnvironmentNames = environmentNames.filter(
+      (environment) => environment !== targetEnvironment,
+    )
+    const nextActiveEnvironment = nextEnvironmentNames.includes(activeEnvironment)
+      ? activeEnvironment
+      : DEFAULT_PROJECT_ENVIRONMENTS[0]
+
+    const didRemoveEnvironment = await saveProjectUpdate(
+      { [`environments.${targetEnvironment}`]: deleteField() },
+      { successMessage: `${targetEnvironment} environment removed.` },
+    )
+
+    if (!didRemoveEnvironment) {
+      return
+    }
+
+    setActiveEnvironment(nextActiveEnvironment)
+    setEnvironmentMenuState({
+      isOpen: false,
+      x: 0,
+      y: 0,
+      environment: '',
+    })
   }
 
   async function handleTogglePin() {
@@ -801,6 +889,9 @@ export default function ProjectCard({
                   key={environment}
                   type="button"
                   onClick={() => handleEnvironmentSelect(environment)}
+                  onContextMenu={(event) =>
+                    openEnvironmentContextMenu(event, environment)
+                  }
                   className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                     isActive
                       ? 'bg-blue-600 text-white'
@@ -808,6 +899,11 @@ export default function ProjectCard({
                         ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-200 dark:hover:bg-blue-500/20'
                         : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
                   }`}
+                  title={
+                    DEFAULT_PROJECT_ENVIRONMENTS.includes(environment)
+                      ? environment
+                      : `${environment} (right-click for actions)`
+                  }
                 >
                   {environment}
                 </button>
@@ -1188,6 +1284,24 @@ export default function ProjectCard({
             className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             Edit Notes
+          </button>
+        </div>
+      ) : null}
+
+      {environmentMenuState.isOpen ? (
+        <div
+          ref={environmentMenuRef}
+          className="fixed z-40 min-w-44 rounded-2xl border border-gray-100 bg-white p-2 shadow-xl dark:border-slate-800 dark:bg-slate-950"
+          style={{ left: environmentMenuState.x, top: environmentMenuState.y }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              void handleRemoveEnvironment()
+            }}
+            className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
+          >
+            Remove env
           </button>
         </div>
       ) : null}
