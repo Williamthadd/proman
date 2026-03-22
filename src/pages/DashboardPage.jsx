@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { addDoc, collection, deleteDoc, doc, Timestamp } from 'firebase/firestore'
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore'
 import { FolderPlus, LoaderCircle, SearchX, X } from 'lucide-react'
+import AddLaunchpadModal from '../components/AddLaunchpadModal'
 import Header from '../components/Header'
+import LaunchpadGrid from '../components/LaunchpadGrid'
 import MadeByFooter from '../components/MadeByFooter'
 import ProjectCard from '../components/ProjectCard'
 import SearchBar from '../components/SearchBar'
@@ -9,11 +18,17 @@ import SkeletonCard from '../components/SkeletonCard'
 import SortFilterBar from '../components/SortFilterBar'
 import ToastContainer from '../components/ToastContainer'
 import { LANGUAGE_COLORS } from '../constants/languageColors'
+import {
+  getLaunchpadCategoryLabel,
+  getLaunchpadCategoryOptions,
+} from '../constants/launchpadCategories'
 import { DEFAULT_PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
-import { db } from '../firebase'
+import { auth, db } from '../firebase'
 import useAuth from '../hooks/useAuth'
+import useLaunchpad from '../hooks/useLaunchpad'
 import useProjects from '../hooks/useProjects'
 import useToast from '../hooks/useToast'
+import useUserLimits from '../hooks/useUserLimits'
 import {
   getTimeValue,
   normalizeProjectPath,
@@ -72,7 +87,6 @@ function getImportErrorMessage(error) {
   return 'Unable to add that project right now.'
 }
 
-const MAX_PROJECTS = 20
 const MANUAL_LANGUAGE_OPTIONS = Object.keys(LANGUAGE_COLORS).filter(
   (language) => language !== 'Other',
 )
@@ -90,8 +104,23 @@ function toUniqueLanguages(languages = []) {
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth()
   const { projects, loading: projectsLoading, error } = useProjects(user?.uid)
+  const {
+    items: launchpadItems,
+    loading: launchpadLoading,
+    error: launchpadError,
+  } = useLaunchpad()
+  const {
+    limits,
+    loading: limitsLoading,
+    error: limitsError,
+  } = useUserLimits(user)
   const { toasts, addToast, removeToast } = useToast()
+  const [dashboardMode, setDashboardMode] = useState(
+    () => window.localStorage.getItem('proman-dashboard-mode') || 'projects',
+  )
   const [search, setSearch] = useState('')
+  const [launchpadSearch, setLaunchpadSearch] = useState('')
+  const [launchpadFilterCategory, setLaunchpadFilterCategory] = useState('all')
   const [sort, setSort] = useState('lastUpdated')
   const [filterLang, setFilterLang] = useState('all')
   const [filterTag, setFilterTag] = useState('all')
@@ -103,6 +132,7 @@ export default function DashboardPage() {
     active: false,
     message: '',
   })
+  const [isAddLaunchpadOpen, setIsAddLaunchpadOpen] = useState(false)
   const [projectDraft, setProjectDraft] = useState({
     displayName: '',
     absolutePath: '',
@@ -111,14 +141,26 @@ export default function DashboardPage() {
     customLanguage: '',
   })
   const searchInputRef = useRef(null)
+  const launchpadSearchInputRef = useRef(null)
+  const maxProjects = limits.maxProjects
+  const maxWebsites = limits.maxWebsites
+  const planLabel =
+    maxProjects > 20 && maxWebsites > 50 ? 'Pro plan' : 'Free plan'
   const usedProjectCount = projects.length
-  const hasReachedProjectLimit = usedProjectCount >= MAX_PROJECTS
-  const remainingProjectSlots = Math.max(0, MAX_PROJECTS - usedProjectCount)
+  const usedWebsiteCount = launchpadItems.length
+  const hasReachedProjectLimit = usedProjectCount >= maxProjects
+  const hasReachedWebsiteLimit = usedWebsiteCount >= maxWebsites
+  const remainingProjectSlots = Math.max(0, maxProjects - usedProjectCount)
+  const remainingWebsiteSlots = Math.max(0, maxWebsites - usedWebsiteCount)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
     window.localStorage.setItem('proman-theme', darkMode ? 'dark' : 'light')
   }, [darkMode])
+
+  useEffect(() => {
+    window.localStorage.setItem('proman-dashboard-mode', dashboardMode)
+  }, [dashboardMode])
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -133,14 +175,18 @@ export default function DashboardPage() {
       }
 
       event.preventDefault()
-      searchInputRef.current?.focus()
+      if (dashboardMode === 'launchpad') {
+        launchpadSearchInputRef.current?.focus()
+      } else {
+        searchInputRef.current?.focus()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [])
+  }, [dashboardMode])
 
   useEffect(() => {
     if (error) {
@@ -149,11 +195,29 @@ export default function DashboardPage() {
   }, [addToast, error])
 
   useEffect(() => {
+    if (launchpadError) {
+      addToast('Launchpad sync hit an issue. Please try refreshing.', 'error')
+    }
+  }, [addToast, launchpadError])
+
+  useEffect(() => {
+    if (limitsError) {
+      addToast('Account limits could not be loaded. Using default free-plan limits.', 'info')
+    }
+  }, [addToast, limitsError])
+
+  useEffect(() => {
     if (hasReachedProjectLimit && isManualImportOpen) {
       setIsManualImportOpen(false)
       resetProjectDraft()
     }
   }, [hasReachedProjectLimit, isManualImportOpen])
+
+  useEffect(() => {
+    if (hasReachedWebsiteLimit && isAddLaunchpadOpen) {
+      setIsAddLaunchpadOpen(false)
+    }
+  }, [hasReachedWebsiteLimit, isAddLaunchpadOpen])
 
   const availableLangs = useMemo(
     () =>
@@ -169,6 +233,15 @@ export default function DashboardPage() {
         new Set(projects.flatMap((project) => project.tags ?? []).filter(Boolean)),
       ).sort((left, right) => left.localeCompare(right)),
     [projects],
+  )
+
+  const launchpadCategoryOptions = useMemo(
+    () =>
+      getLaunchpadCategoryOptions([
+        ...launchpadItems.map((item) => item.category),
+        launchpadFilterCategory === 'all' ? '' : launchpadFilterCategory,
+      ]),
+    [launchpadFilterCategory, launchpadItems],
   )
 
   const visibleProjects = useMemo(() => {
@@ -247,13 +320,25 @@ export default function DashboardPage() {
   function openManualImport() {
     if (hasReachedProjectLimit) {
       addToast(
-        `You can only import ${MAX_PROJECTS} projects here. Remove one before adding another.`,
+        `You can only import ${maxProjects} projects here. Remove one before adding another.`,
         'error',
       )
       return
     }
 
     setIsManualImportOpen(true)
+  }
+
+  function openLaunchpadImport() {
+    if (hasReachedWebsiteLimit) {
+      addToast(
+        `You can only save ${maxWebsites} website shortcuts here. Remove one before adding another.`,
+        'error',
+      )
+      return
+    }
+
+    setIsAddLaunchpadOpen(true)
   }
 
   async function handleManualImportSubmit(event) {
@@ -266,7 +351,7 @@ export default function DashboardPage() {
 
     if (hasReachedProjectLimit) {
       addToast(
-        `You can only import ${MAX_PROJECTS} projects here. Remove one before adding another.`,
+        `You can only import ${maxProjects} projects here. Remove one before adding another.`,
         'error',
       )
       return
@@ -350,7 +435,54 @@ export default function DashboardPage() {
     }
   }
 
-  if (authLoading) {
+  async function handleDeleteLaunchpadItem(item) {
+    const uid = auth.currentUser?.uid
+
+    if (!uid) {
+      addToast('You need to be signed in to remove shortcuts.', 'error')
+      return false
+    }
+
+    try {
+      await deleteDoc(doc(db, 'users', uid, 'launchpad', item.id))
+      addToast('Shortcut removed.', 'success')
+      return true
+    } catch {
+      addToast('Unable to remove that shortcut.', 'error')
+      return false
+    }
+  }
+
+  async function handleUpdateLaunchpadItem(item, patch) {
+    const uid = auth.currentUser?.uid
+
+    if (!uid) {
+      addToast('You need to be signed in to update shortcuts.', 'error')
+      return false
+    }
+
+    try {
+      await updateDoc(doc(db, 'users', uid, 'launchpad', item.id), patch)
+      return true
+    } catch {
+      addToast('Unable to update that shortcut.', 'error')
+      return false
+    }
+  }
+
+  async function handleToggleLaunchpadPin(item) {
+    const didTogglePin = await handleUpdateLaunchpadItem(item, {
+      isPinned: !item.isPinned,
+    })
+
+    if (!didTogglePin) {
+      return
+    }
+
+    addToast(item.isPinned ? 'Unpinned.' : 'Pinned to top.', 'success')
+  }
+
+  if (authLoading || limitsLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#BFDBFE] dark:bg-slate-950">
         <LoaderCircle className="h-10 w-10 animate-spin text-blue-600 dark:text-blue-300" />
@@ -372,73 +504,144 @@ export default function DashboardPage() {
 
       <main className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
-                Workspace dashboard
-              </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-                Open local coding projects faster than your dock can keep up.
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                Add your local projects manually, keep paths editable, and save
-                a clean list of programming languages for each workspace. Free plan: You
-                can only import {MAX_PROJECTS} projects here.
-              </p>
-            </div>
+          {dashboardMode === 'projects' ? (
+            <>
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+                <div className="max-w-2xl">
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
+                    Workspace dashboard
+                  </p>
+                  <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                    Open local coding projects faster than your dock can keep up.
+                  </h1>
+                  <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                    Add your local projects manually, keep paths editable, and save
+                    a clean list of programming languages for each workspace. {planLabel}: You
+                    can only import {maxProjects} projects here.
+                  </p>
+                </div>
 
-            <div className="grid gap-3 sm:grid-cols-4 lg:min-w-[26rem]">
-              <div className="rounded-2xl bg-blue-50 px-4 py-3 dark:bg-blue-500/10">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-200">
-                  Projects
-                </p>
-                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                  {usedProjectCount}
-                </p>
+                <div className="grid gap-3 sm:grid-cols-4 lg:min-w-[26rem]">
+                  <div className="rounded-2xl bg-blue-50 px-4 py-3 dark:bg-blue-500/10">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-200">
+                      Projects
+                    </p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                      {usedProjectCount}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-inset ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                      Pinned
+                    </p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                      {projects.filter((project) => project.isPinned).length}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-inset ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                      Lang
+                    </p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                      {availableLangs.length}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={manualImportState.active || hasReachedProjectLimit}
+                    onClick={openManualImport}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-80"
+                  >
+                    {manualImportState.active ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FolderPlus className="h-4 w-4" />
+                    )}
+                    {manualImportState.active
+                      ? 'Adding project...'
+                      : hasReachedProjectLimit
+                        ? 'Project limit reached'
+                        : 'Add project'}
+                  </button>
+                </div>
               </div>
-              <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-inset ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                  Pinned
-                </p>
-                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                  {projects.filter((project) => project.isPinned).length}
-                </p>
+              <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                {hasReachedProjectLimit
+                  ? `${planLabel}: Project limit reached. Each account can only import ${maxProjects} projects here.`
+                  : `${planLabel}: ${usedProjectCount}/${maxProjects} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+                <div className="max-w-2xl">
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
+                    Workspace dashboard
+                  </p>
+                  <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                    Open your go-to web platforms without digging through bookmarks.
+                  </h1>
+                  <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                    Save the tools you use every day, organize them with categories,
+                    and jump into the right website from one Launchpad.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[18rem]">
+                  <div className="rounded-2xl bg-blue-50 px-4 py-3 dark:bg-blue-500/10">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-200">
+                      Websites
+                    </p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                      {usedWebsiteCount}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={hasReachedWebsiteLimit}
+                    onClick={openLaunchpadImport}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-80"
+                  >
+                    <FolderPlus className="h-4 w-4" />
+                    {hasReachedWebsiteLimit ? 'Website limit reached' : 'Add shortcut'}
+                  </button>
+                </div>
               </div>
-              <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-inset ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                  Lang
-                </p>
-                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                  {availableLangs.length}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={manualImportState.active || hasReachedProjectLimit}
-                onClick={openManualImport}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-80"
-              >
-                {manualImportState.active ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <FolderPlus className="h-4 w-4" />
-                )}
-                {manualImportState.active
-                  ? 'Adding project...'
-                  : hasReachedProjectLimit
-                    ? 'Project limit reached'
-                    : 'Add project'}
-              </button>
-            </div>
-          </div>
-          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-            {hasReachedProjectLimit
-              ? `Free plan: Project limit reached. Each account can only import ${MAX_PROJECTS} projects here.`
-              : `Free plan: ${usedProjectCount}/${MAX_PROJECTS} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
-          </p>
+              <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                {hasReachedWebsiteLimit
+                  ? `${planLabel}: Website limit reached. Each account can only save ${maxWebsites} shortcuts here.`
+                  : `${planLabel}: ${usedWebsiteCount}/${maxWebsites} websites used. ${remainingWebsiteSlots} slot${remainingWebsiteSlots === 1 ? '' : 's'} left.`}
+              </p>
+            </>
+          )}
         </section>
 
-        {isManualImportOpen ? (
+        <div className="flex w-fit gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <button
+            type="button"
+            onClick={() => setDashboardMode('projects')}
+            className={
+              dashboardMode === 'projects'
+                ? 'rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition'
+                : 'rounded-xl px-5 py-2 text-sm font-medium text-slate-600 transition hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-800'
+            }
+          >
+            Projects
+          </button>
+          <button
+            type="button"
+            onClick={() => setDashboardMode('launchpad')}
+            className={
+              dashboardMode === 'launchpad'
+                ? 'rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition'
+                : 'rounded-xl px-5 py-2 text-sm font-medium text-slate-600 transition hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-800'
+            }
+          >
+            Launchpad
+          </button>
+        </div>
+
+        {dashboardMode === 'projects' && isManualImportOpen ? (
           <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -450,8 +653,8 @@ export default function DashboardPage() {
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
                   Enter the local project path, optionally rename the card, and
-                  choose the programming languages you want displayed. Free plan: You can
-                  only import {MAX_PROJECTS} projects here.
+                  choose the programming languages you want displayed. {planLabel}: You can
+                  only import {maxProjects} projects here.
                 </p>
               </div>
 
@@ -587,7 +790,7 @@ export default function DashboardPage() {
                   scanning or percentage breakdown will be generated.
                 </p>
                 <p className="text-sm font-medium text-blue-700 dark:text-blue-200">
-                  {`${usedProjectCount}/${MAX_PROJECTS} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
+                  {`${usedProjectCount}/${maxProjects} projects used. ${remainingProjectSlots} slot${remainingProjectSlots === 1 ? '' : 's'} left.`}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   {`Default env on add: ${DEFAULT_PROJECT_ENVIRONMENTS[0]}`}
@@ -626,127 +829,189 @@ export default function DashboardPage() {
           </section>
         ) : null}
 
-        <section className="grid gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <SearchBar
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            inputRef={searchInputRef}
+        {dashboardMode === 'launchpad' && isAddLaunchpadOpen ? (
+          <AddLaunchpadModal
+            onClose={() => setIsAddLaunchpadOpen(false)}
+            addToast={addToast}
+            maxWebsites={maxWebsites}
+            usedWebsites={usedWebsiteCount}
+            hasReachedLimit={hasReachedWebsiteLimit}
           />
-
-          <SortFilterBar
-            sort={sort}
-            onSort={(event) => setSort(event.target.value)}
-            filterLang={filterLang}
-            onFilterLang={(event) => setFilterLang(event.target.value)}
-            filterTag={filterTag}
-            onFilterTag={(event) => setFilterTag(event.target.value)}
-            availableLangs={availableLangs}
-            availableTags={availableTags}
-          />
-        </section>
-
-        {projectsLoading ? (
-          <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <SkeletonCard key={`skeleton-${index}`} />
-            ))}
-          </section>
         ) : null}
 
-        {!projectsLoading && projects.length === 0 ? (
-          <section className="rounded-2xl border border-dashed border-blue-200 bg-white p-10 text-center shadow-sm dark:border-blue-500/20 dark:bg-slate-900">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
-              Nothing imported yet
-            </p>
-            <h2 className="mt-3 text-2xl font-bold text-slate-900 dark:text-white">
-              Bring your first local project into ProMan.
-            </h2>
-            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-              Add your first project manually by saving its local path and the
-              programming languages you want shown on the card. Free plan: You can only
-              import {MAX_PROJECTS} projects here.
-            </p>
-            <button
-              type="button"
-              disabled={manualImportState.active || hasReachedProjectLimit}
-              onClick={openManualImport}
-              className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-80"
-            >
-              {manualImportState.active ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-              ) : (
-                <FolderPlus className="h-4 w-4" />
-              )}
-              {manualImportState.active
-                ? 'Adding project...'
-                : hasReachedProjectLimit
-                  ? 'Project limit reached'
-                  : 'Add your first project'}
-            </button>
-          </section>
-        ) : null}
+        {dashboardMode === 'projects' ? (
+          <>
+            <section className="grid gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <SearchBar
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                inputRef={searchInputRef}
+              />
 
-        {!projectsLoading && projects.length > 0 && visibleProjects.length === 0 ? (
-          <section className="rounded-2xl border border-gray-100 bg-white p-10 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <SearchX className="mx-auto h-12 w-12 text-slate-400 dark:text-slate-500" />
-            <h2 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">
-              No projects match this search.
-            </h2>
-            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-              Try a different folder name, language, or tag filter.
-            </p>
-          </section>
-        ) : null}
+              <SortFilterBar
+                sort={sort}
+                onSort={(event) => setSort(event.target.value)}
+                filterLang={filterLang}
+                onFilterLang={(event) => setFilterLang(event.target.value)}
+                filterTag={filterTag}
+                onFilterTag={(event) => setFilterTag(event.target.value)}
+                availableLangs={availableLangs}
+                availableTags={availableTags}
+              />
+            </section>
 
-        {!projectsLoading && pinnedProjects.length > 0 ? (
-          <section className="grid gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                📌 Pinned
-              </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Your highest-priority workspaces
-              </p>
-            </div>
+            {projectsLoading ? (
+              <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <SkeletonCard key={`skeleton-${index}`} />
+                ))}
+              </section>
+            ) : null}
 
-            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {pinnedProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  onDelete={handleDeleteProject}
-                  onTagClick={setFilterTag}
-                  addToast={addToast}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
+            {!projectsLoading && projects.length === 0 ? (
+              <section className="rounded-2xl border border-dashed border-blue-200 bg-white p-10 text-center shadow-sm dark:border-blue-500/20 dark:bg-slate-900">
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
+                  Nothing imported yet
+                </p>
+                <h2 className="mt-3 text-2xl font-bold text-slate-900 dark:text-white">
+                  Bring your first local project into ProMan.
+                </h2>
+                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                  Add your first project manually by saving its local path and the
+                  programming languages you want shown on the card. {planLabel}: You can only
+                  import {maxProjects} projects here.
+                </p>
+                <button
+                  type="button"
+                  disabled={manualImportState.active || hasReachedProjectLimit}
+                  onClick={openManualImport}
+                  className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-80"
+                >
+                  {manualImportState.active ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderPlus className="h-4 w-4" />
+                  )}
+                  {manualImportState.active
+                    ? 'Adding project...'
+                    : hasReachedProjectLimit
+                      ? 'Project limit reached'
+                      : 'Add your first project'}
+                </button>
+              </section>
+            ) : null}
 
-        {!projectsLoading && regularProjects.length > 0 ? (
-          <section className="grid gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                Projects
-              </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                {visibleProjects.length} workspace{visibleProjects.length === 1 ? '' : 's'} ready
-              </p>
-            </div>
+            {!projectsLoading && projects.length > 0 && visibleProjects.length === 0 ? (
+              <section className="rounded-2xl border border-gray-100 bg-white p-10 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <SearchX className="mx-auto h-12 w-12 text-slate-400 dark:text-slate-500" />
+                <h2 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">
+                  No projects match this search.
+                </h2>
+                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                  Try a different folder name, language, or tag filter.
+                </p>
+              </section>
+            ) : null}
 
-            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {regularProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  onDelete={handleDeleteProject}
-                  onTagClick={setFilterTag}
-                  addToast={addToast}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
+            {!projectsLoading && pinnedProjects.length > 0 ? (
+              <section className="grid gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                    📌 Pinned
+                  </h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Your highest-priority workspaces
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {pinnedProjects.map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      onDelete={handleDeleteProject}
+                      onTagClick={setFilterTag}
+                      addToast={addToast}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {!projectsLoading && regularProjects.length > 0 ? (
+              <section className="grid gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Projects
+                  </h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {visibleProjects.length} workspace{visibleProjects.length === 1 ? '' : 's'} ready
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {regularProjects.map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      onDelete={handleDeleteProject}
+                      onTagClick={setFilterTag}
+                      addToast={addToast}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </>
+        ) : (
+          <div className="grid gap-4">
+            <section className="grid gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className="flex-1">
+                  <input
+                    ref={launchpadSearchInputRef}
+                    type="text"
+                    value={launchpadSearch}
+                    onChange={(event) => setLaunchpadSearch(event.target.value)}
+                    placeholder="Search shortcuts..."
+                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-500/20"
+                  />
+                </div>
+                <label className="grid gap-2 lg:min-w-56">
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                    Filter by category
+                  </span>
+                  <select
+                    value={launchpadFilterCategory}
+                    onChange={(event) =>
+                      setLaunchpadFilterCategory(event.target.value)
+                    }
+                    className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-blue-500/20"
+                  >
+                    <option value="all">All categories</option>
+                    {launchpadCategoryOptions.map((category) => (
+                      <option key={category} value={category}>
+                        {getLaunchpadCategoryLabel(category)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <LaunchpadGrid
+              items={launchpadItems}
+              loading={launchpadLoading}
+              searchQuery={launchpadSearch}
+              filterCategory={launchpadFilterCategory}
+              onDelete={handleDeleteLaunchpadItem}
+              onUpdate={handleUpdateLaunchpadItem}
+              onTogglePin={handleToggleLaunchpadPin}
+              addToast={addToast}
+            />
+
+          </div>
+        )}
       </main>
 
       {manualImportState.active ? (

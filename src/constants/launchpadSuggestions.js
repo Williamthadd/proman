@@ -1,0 +1,42 @@
+export const SUGGESTED_PLATFORMS = [
+  { name: 'GitHub', url: 'https://github.com', category: 'code' },
+  { name: 'Bitbucket', url: 'https://bitbucket.org', category: 'code' },
+  { name: 'GitLab', url: 'https://gitlab.com', category: 'code' },
+  { name: 'Jira', url: 'https://jira.atlassian.com', category: 'code' },
+  { name: 'Linear', url: 'https://linear.app', category: 'code' },
+  { name: 'Postman', url: 'https://postman.com', category: 'code' },
+  { name: 'Figma', url: 'https://figma.com', category: 'design' },
+  { name: 'Notion', url: 'https://notion.so', category: 'docs' },
+  { name: 'Google Docs', url: 'https://docs.google.com', category: 'docs' },
+  {
+    name: 'Confluence',
+    url: 'https://confluence.atlassian.com',
+    category: 'docs',
+  },
+  {
+    name: 'Cloudflare',
+    url: 'https://dash.cloudflare.com',
+    category: 'devops',
+  },
+  { name: 'Vercel', url: 'https://vercel.com', category: 'devops' },
+  {
+    name: 'Google Cloud',
+    url: 'https://console.cloud.google.com',
+    category: 'devops',
+  },
+  { name: 'Supabase', url: 'https://supabase.com/dashboard', category: 'devops' },
+  {
+    name: 'Firebase Console',
+    url: 'https://console.firebase.google.com',
+    category: 'devops',
+  },
+  { name: 'Slack', url: 'https://slack.com', category: 'communication' },
+  { name: 'Claude AI', url: 'https://claude.ai', category: 'ai' },
+  { name: 'ChatGPT', url: 'https://chatgpt.com', category: 'ai' },
+  { name: 'Cursor', url: 'https://cursor.com', category: 'ai' },
+  {
+    name: 'Google Analytics',
+    url: 'https://analytics.google.com',
+    category: 'devops',
+  },
+]
