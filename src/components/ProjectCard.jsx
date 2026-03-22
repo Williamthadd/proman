@@ -965,7 +965,7 @@ export default function ProjectCard({
                     setPathDraft(environmentData.absolutePath ?? '')
                   }
                 }}
-                placeholder={`Add the ${activeEnvironment} path, for example /Users/... or code /Users/...`}
+                placeholder={`Add the ${activeEnvironment} path, for example /Users/...`}
                 className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 dark:border-blue-500/40 dark:bg-slate-800 dark:text-white"
               />
               <p className="text-xs text-slate-500 dark:text-slate-400">
