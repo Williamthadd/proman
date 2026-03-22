@@ -46,7 +46,7 @@ export default function Header({ user, darkMode, onToggleDark, addToast }) {
         {/* Logo */}
         <Link to="/dashboard" className="inline-flex items-center">
           <BrandMark
-            logoClassName="h-8 w-8 sm:h-10 sm:w-10 rounded-2xl object-cover shadow-sm"
+            logoClassName="h-10 w-10 sm:h-15 sm:w-15"
             titleClassName="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white"
           />
         </Link>

@@ -8,7 +8,7 @@ export default function BrandMark({
       <img
         src="/logo-proman.png"
         alt="ProMan logo"
-        className={logoClassName || 'h-10 w-10 rounded-2xl object-cover shadow-sm'}
+        className={logoClassName || 'h-10 w-10'}
       />
       <span className={titleClassName || 'text-xl font-bold tracking-tight text-slate-900 dark:text-white'}>
         ProMan

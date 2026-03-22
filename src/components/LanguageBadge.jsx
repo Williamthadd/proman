@@ -1,82 +1,67 @@
-import { LANGUAGE_COLORS } from '../constants/languageColors'
+import { Code2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 
-const BADGE_CLASS_BY_HEX = {
-  [LANGUAGE_COLORS.TypeScript]:
-    'bg-[#3178C6] text-white ring-[#3178C6]/30 dark:ring-[#3178C6]/40',
-  [LANGUAGE_COLORS.JavaScript]:
-    'bg-[#F7DF1E] text-slate-900 ring-[#F7DF1E]/40 dark:ring-[#F7DF1E]/30',
-  [LANGUAGE_COLORS.Python]:
-    'bg-[#3572A5] text-white ring-[#3572A5]/30 dark:ring-[#3572A5]/40',
-  [LANGUAGE_COLORS.Dart]:
-    'bg-[#0175C2] text-white ring-[#0175C2]/30 dark:ring-[#0175C2]/40',
-  [LANGUAGE_COLORS.Go]:
-    'bg-[#00ADD8] text-slate-900 ring-[#00ADD8]/30 dark:ring-[#00ADD8]/40',
-  [LANGUAGE_COLORS.Rust]:
-    'bg-[#DEA584] text-slate-900 ring-[#DEA584]/40 dark:ring-[#DEA584]/30',
-  [LANGUAGE_COLORS.HTML]:
-    'bg-[#E34C26] text-white ring-[#E34C26]/30 dark:ring-[#E34C26]/40',
-  [LANGUAGE_COLORS.CSS]:
-    'bg-[#563D7C] text-white ring-[#563D7C]/30 dark:ring-[#563D7C]/40',
-  [LANGUAGE_COLORS.Java]:
-    'bg-[#B07219] text-white ring-[#B07219]/30 dark:ring-[#B07219]/40',
-  [LANGUAGE_COLORS.Ruby]:
-    'bg-[#CC342D] text-white ring-[#CC342D]/30 dark:ring-[#CC342D]/40',
-  [LANGUAGE_COLORS.PHP]:
-    'bg-[#4F5D95] text-white ring-[#4F5D95]/30 dark:ring-[#4F5D95]/40',
-  [LANGUAGE_COLORS.Other]:
-    'bg-[#8B8B8B] text-white ring-[#8B8B8B]/30 dark:ring-[#8B8B8B]/40',
+const DEVICON_NAME_BY_LANGUAGE = {
+  TypeScript: 'typescript',
+  JavaScript: 'javascript',
+  Python: 'python',
+  Dart: 'dart',
+  Go: 'go',
+  Rust: 'rust',
+  HTML: 'html5',
+  CSS: 'css3',
+  Java: 'java',
+  Ruby: 'ruby',
+  PHP: 'php',
 }
 
-const SHORT_LABELS = {
-  TypeScript: 'TS',
-  JavaScript: 'JS',
-  Python: 'PY',
-  Dart: 'DART',
-  Go: 'GO',
-  Rust: 'RS',
-  HTML: 'HTML',
-  CSS: 'CSS',
-  Java: 'JAVA',
-  Ruby: 'RB',
-  PHP: 'PHP',
-  Other: 'OT',
-}
-
-function getShortLabel(language) {
-  if (SHORT_LABELS[language]) {
-    return SHORT_LABELS[language]
-  }
-
+function normalizeDeviconName(language) {
   const normalized = String(language ?? '')
     .trim()
-    .split(/[\s/-]+/)
-    .map((part) => part[0] ?? '')
-    .join('')
-    .toUpperCase()
+    .toLowerCase()
+    .replaceAll('+', 'plus')
+    .replaceAll('#', 'sharp')
+    .replace(/[^a-z0-9]+/g, '')
 
-  if (normalized) {
-    return normalized.slice(0, 4)
-  }
-
-  return 'OT'
+  return normalized || null
 }
 
-function getBadgeClass(language) {
+function getDeviconName(language) {
   return (
-    BADGE_CLASS_BY_HEX[LANGUAGE_COLORS[language] ?? LANGUAGE_COLORS.Other] ??
-    BADGE_CLASS_BY_HEX[LANGUAGE_COLORS.Other]
+    DEVICON_NAME_BY_LANGUAGE[language] ?? normalizeDeviconName(language) ?? 'code'
   )
+}
+
+function getDeviconUrl(language) {
+  const iconName = getDeviconName(language)
+  return `https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/${iconName}/${iconName}-original.svg`
 }
 
 export default function LanguageBadge({ language }) {
   const nextLanguage = language || 'Other'
+  const imageUrl = useMemo(() => getDeviconUrl(nextLanguage), [nextLanguage])
+  const [hasImageError, setHasImageError] = useState(nextLanguage === 'Other')
+
+  useEffect(() => {
+    setHasImageError(nextLanguage === 'Other')
+  }, [nextLanguage])
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getBadgeClass(nextLanguage)}`}
+      className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-950"
       title={nextLanguage}
     >
-      {getShortLabel(nextLanguage)}
+      {hasImageError ? (
+        <Code2 className="h-5 w-5 text-slate-500 dark:text-slate-300" />
+      ) : (
+        <img
+          src={imageUrl}
+          alt={nextLanguage}
+          className="h-full w-full object-contain"
+          loading="lazy"
+          onError={() => setHasImageError(true)}
+        />
+      )}
     </span>
   )
 }
