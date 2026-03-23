@@ -25,6 +25,7 @@ import {
 import { DEFAULT_PROJECT_ENVIRONMENTS } from '../constants/projectEnvironments'
 import { auth, db } from '../firebase'
 import useAuth from '../hooks/useAuth'
+import useLightBackgroundColor from '../hooks/useLightBackgroundColor'
 import useLaunchpad from '../hooks/useLaunchpad'
 import useProjects from '../hooks/useProjects'
 import useToast from '../hooks/useToast'
@@ -34,6 +35,7 @@ import {
   normalizeProjectPath,
   normalizeRepositoryUrl,
 } from '../utils/formatters'
+import { getStoredLightBackgroundColor } from '../utils/lightBackground'
 import {
   getPrimaryProjectLanguage,
   getProjectLanguages,
@@ -103,6 +105,11 @@ function toUniqueLanguages(languages = []) {
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth()
+  const {
+    lightBackgroundColor,
+    setLightBackgroundColor,
+    resetLightBackgroundColor,
+  } = useLightBackgroundColor()
   const { projects, loading: projectsLoading, error } = useProjects(user?.uid)
   const {
     items: launchpadItems,
@@ -484,14 +491,22 @@ export default function DashboardPage() {
 
   if (authLoading || limitsLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#BFDBFE] dark:bg-slate-950">
+      <div
+        className="flex min-h-screen items-center justify-center dark:bg-slate-950"
+        style={
+          darkMode ? undefined : { backgroundColor: getStoredLightBackgroundColor() }
+        }
+      >
         <LoaderCircle className="h-10 w-10 animate-spin text-blue-600 dark:text-blue-300" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#BFDBFE] pb-10 dark:bg-slate-950">
+    <div
+      className="min-h-screen pb-10 dark:bg-slate-950"
+      style={darkMode ? undefined : { backgroundColor: lightBackgroundColor }}
+    >
       <div className="pointer-events-none absolute left-0 top-0 h-72 w-72 rounded-full bg-white/40 blur-3xl dark:bg-blue-500/10" />
       <div className="pointer-events-none absolute right-0 top-32 h-80 w-80 rounded-full bg-cyan-200/50 blur-3xl dark:bg-cyan-500/10" />
 
@@ -500,6 +515,9 @@ export default function DashboardPage() {
         darkMode={darkMode}
         onToggleDark={() => setDarkMode((current) => !current)}
         addToast={addToast}
+        lightBackgroundColor={lightBackgroundColor}
+        onChangeLightBackgroundColor={setLightBackgroundColor}
+        onResetLightBackgroundColor={resetLightBackgroundColor}
       />
 
       <main className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">

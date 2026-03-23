@@ -8,10 +8,12 @@ import {
 import { addDoc, collection, Timestamp } from 'firebase/firestore'
 import { LoaderCircle } from 'lucide-react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import BackgroundColorControl from '../components/BackgroundColorControl'
 import BrandMark from '../components/BrandMark'
 import MadeByFooter from '../components/MadeByFooter'
 import { auth, db } from '../firebase'
 import useAuth from '../hooks/useAuth'
+import useLightBackgroundColor from '../hooks/useLightBackgroundColor'
 import reportAuthFailure from '../utils/authFailureReporter'
 import fetchIpAddress from '../utils/ipFetcher'
 
@@ -96,14 +98,21 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [darkMode] = useState(
+    () => window.localStorage.getItem('proman-theme') === 'dark',
+  )
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
+  const {
+    lightBackgroundColor,
+    setLightBackgroundColor,
+    resetLightBackgroundColor,
+  } = useLightBackgroundColor()
   const googleProvider = useMemo(() => new GoogleAuthProvider(), [])
 
   useEffect(() => {
-    const isDarkMode = window.localStorage.getItem('proman-theme') === 'dark'
-    document.documentElement.classList.toggle('dark', isDarkMode)
-  }, [])
+    document.documentElement.classList.toggle('dark', darkMode)
+  }, [darkMode])
 
   async function writeLoginLog({ uid, method, success, ipAddress }) {
     if (!uid) {
@@ -213,7 +222,10 @@ export default function LoginPage() {
 
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#BFDBFE] dark:bg-slate-950">
+      <div
+        className="flex min-h-screen items-center justify-center dark:bg-slate-950"
+        style={darkMode ? undefined : { backgroundColor: lightBackgroundColor }}
+      >
         <LoaderCircle className="h-10 w-10 animate-spin text-blue-600 dark:text-blue-300" />
       </div>
     )
@@ -224,9 +236,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#BFDBFE] px-4 py-12 dark:bg-slate-950">
+    <div
+      className="relative min-h-screen overflow-hidden px-4 py-12 dark:bg-slate-950"
+      style={darkMode ? undefined : { backgroundColor: lightBackgroundColor }}
+    >
       <div className="absolute -left-24 top-8 h-64 w-64 rounded-full bg-white/40 blur-3xl dark:bg-blue-500/10" />
       <div className="absolute -right-20 bottom-10 h-72 w-72 rounded-full bg-blue-300/40 blur-3xl dark:bg-cyan-500/10" />
+      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
+        <BackgroundColorControl
+          darkMode={darkMode}
+          lightBackgroundColor={lightBackgroundColor}
+          onChange={setLightBackgroundColor}
+          onReset={resetLightBackgroundColor}
+        />
+      </div>
 
       <div className="relative mx-auto flex min-h-[calc(100vh-6rem)] max-w-md flex-col items-center justify-center">
         <BrandMark
